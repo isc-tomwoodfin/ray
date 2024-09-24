@@ -528,6 +528,8 @@ def build(build_python, build_java, build_cpp):
     # that certain flags will not be passed along such as --user or sudo.
     # TODO(rkn): Fix this.
     if not os.getenv("SKIP_THIRDPARTY_INSTALL"):
+        fixenv = dict(os.environ, CC="gcc")
+        fixenv.pop("PYTHONPATH", None)
         pip_packages = ["psutil", "setproctitle==1.2.2", "colorama"]
         subprocess.check_call(
             [
@@ -539,7 +541,7 @@ def build(build_python, build_java, build_cpp):
                 "--target=" + os.path.join(ROOT_DIR, THIRDPARTY_SUBDIR),
             ]
             + pip_packages,
-            env=dict(os.environ, CC="gcc"),
+            env=fixenv,
         )
 
     # runtime env agent dependenceis
@@ -553,7 +555,8 @@ def build(build_python, build_java, build_cpp):
             "-q",
             "--target=" + os.path.join(ROOT_DIR, RUNTIME_ENV_AGENT_THIRDPARTY_SUBDIR),
         ]
-        + runtime_env_agent_pip_packages
+        + runtime_env_agent_pip_packages,
+        env=fixenv,
     )
 
     bazel_flags = ["--verbose_failures"]
