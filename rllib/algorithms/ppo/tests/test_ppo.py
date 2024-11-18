@@ -8,12 +8,12 @@ from ray.rllib.algorithms.ppo.ppo_learner import (
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.core import DEFAULT_MODULE_ID
 from ray.rllib.core.learner.learner import DEFAULT_OPTIMIZER, LR_KEY
-
+from ray.rllib.core.rl_module.default_model_config import DefaultModelConfig
 from ray.rllib.utils.metrics import LEARNER_RESULTS
 from ray.rllib.utils.test_utils import check, check_train_results_new_api_stack
 
 
-def get_model_config(framework, lstm=False):
+def get_model_config(lstm=False):
     return (
         dict(
             use_lstm=True,
@@ -66,11 +66,6 @@ class TestPPO(unittest.TestCase):
         # Build a PPOConfig object with the `SingleAgentEnvRunner` class.
         config = (
             ppo.PPOConfig()
-            # Enable new API stack and use EnvRunner.
-            .api_stack(
-                enable_rl_module_and_learner=True,
-                enable_env_runner_and_connector_v2=True,
-            )
             .env_runners(num_env_runners=0)
             .training(
                 num_epochs=2,
@@ -93,18 +88,14 @@ class TestPPO(unittest.TestCase):
 
         num_iterations = 2
 
-        # TODO (sven) Bring back "FrozenLake-v1"
         for env in [
-            # "CliffWalking-v0",
             "CartPole-v1",
             "Pendulum-v1",
-        ]:  # "ALE/Breakout-v5"]:
+        ]:
             print("Env={}".format(env))
             for lstm in [False]:
                 print("LSTM={}".format(lstm))
-                config.rl_module(
-                    model_config_dict=get_model_config("torch", lstm=lstm)
-                ).framework(eager_tracing=False)
+                config.rl_module(model_config=get_model_config(lstm=lstm))
 
                 algo = config.build(env=env)
                 # TODO: Maybe add an API to get the Learner(s) instances within
@@ -129,6 +120,48 @@ class TestPPO(unittest.TestCase):
 
                 # algo.evaluate()
                 algo.stop()
+
+    def test_ppo_free_log_std(self):
+        """Tests the free log std option works."""
+        config = (
+            ppo.PPOConfig()
+            .environment("Pendulum-v1")
+            .env_runners(
+                num_env_runners=1,
+            )
+            .rl_module(
+                model_config=DefaultModelConfig(
+                    fcnet_hiddens=[10],
+                    fcnet_activation="linear",
+                    free_log_std=True,
+                    vf_share_layers=True,
+                ),
+            )
+            .training(
+                gamma=0.99,
+            )
+        )
+
+        algo = config.build()
+        module = algo.get_module(DEFAULT_MODULE_ID)
+
+        # Check the free log std var is created.
+        matching = [v for (n, v) in module.named_parameters() if "log_std" in n]
+        assert len(matching) == 1, matching
+        log_std_var = matching[0]
+
+        def get_value(log_std_var=log_std_var):
+            return log_std_var.detach().cpu().numpy()[0]
+
+        # Check the variable is initially zero.
+        init_std = get_value()
+        assert init_std == 0.0, init_std
+        algo.train()
+
+        # Check the variable is updated.
+        post_std = get_value()
+        assert post_std != 0.0, post_std
+        algo.stop()
 
 
 if __name__ == "__main__":

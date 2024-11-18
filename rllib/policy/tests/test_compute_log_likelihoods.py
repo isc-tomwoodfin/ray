@@ -100,13 +100,8 @@ def do_test_log_likelihood(
                 in_training=False,
             )
 
-            # The expected logp computation logic is overfitted to the ModelV2
-            # stack and does not generalize to RLModule API.
-            if not config.enable_rl_module_and_learner:
-                expected_logp = _get_expected_logp(
-                    vars, obs_batch, a, layer_key, logp_func
-                )
-                check(logp, expected_logp[0], rtol=0.2)
+            expected_logp = _get_expected_logp(vars, obs_batch, a, layer_key, logp_func)
+            check(logp, expected_logp[0], rtol=0.2)
     # Test all available actions for their logp values.
     else:
         for a in [0, 1, 2, 3]:
@@ -120,8 +115,7 @@ def do_test_log_likelihood(
                 in_training=False,
             )
 
-            if not config.enable_rl_module_and_learner:
-                check(np.exp(logp), expected_prob, atol=0.2)
+            check(np.exp(logp), expected_prob, atol=0.2)
 
 
 class TestComputeLogLikelihood(unittest.TestCase):
@@ -135,20 +129,30 @@ class TestComputeLogLikelihood(unittest.TestCase):
 
     def test_ppo_cont(self):
         """Tests PPO's (cont. actions) compute_log_likelihoods method."""
-        config = ppo.PPOConfig()
-        config.training(
-            model={
-                "fcnet_hiddens": [10],
-                "fcnet_activation": "linear",
-            }
+        config = (
+            ppo.PPOConfig()
+            .api_stack(
+                enable_env_runner_and_connector_v2=False,
+                enable_rl_module_and_learner=False,
+            )
+            .training(
+                model={
+                    "fcnet_hiddens": [10],
+                    "fcnet_activation": "linear",
+                }
+            )
+            .debugging(seed=42)
         )
-        config.debugging(seed=42)
         prev_a = np.array([0.0])
         do_test_log_likelihood(ppo.PPO, config, prev_a, continuous=True)
 
     def test_ppo_discr(self):
         """Tests PPO's (discr. actions) compute_log_likelihoods method."""
         config = ppo.PPOConfig()
+        config.api_stack(
+            enable_env_runner_and_connector_v2=False,
+            enable_rl_module_and_learner=False,
+        )
         config.debugging(seed=42)
         prev_a = np.array(0)
         do_test_log_likelihood(ppo.PPO, config, prev_a)

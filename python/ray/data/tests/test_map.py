@@ -82,8 +82,8 @@ def test_basic_actors(shutdown_only):
     def _all_actors_dead():
         actor_table = ray.state.actors()
         actors = {
-            id: actor_info
-            for actor_info in actor_table.values()
+            _id: actor_info
+            for _id, actor_info in actor_table.items()
             if actor_info["ActorClassName"] == _MapWorker.__name__
         }
         assert len(actors) > 0
@@ -256,6 +256,25 @@ def test_actor_task_failure(shutdown_only, restore_data_context):
     ds.map_batches(Mapper, concurrency=1).materialize()
 
 
+def test_gpu_workers_not_reused(shutdown_only):
+    """By default, in Ray Core if `num_gpus` is specified workers will not be reused
+    for tasks invocation.
+
+    For more context check out https://github.com/ray-project/ray/issues/29624"""
+
+    ray.init(num_gpus=1)
+
+    total_blocks = 5
+    ds = ray.data.range(5, override_num_blocks=total_blocks)
+
+    def _get_worker_id(_):
+        return {"worker_id": ray.get_runtime_context().get_worker_id()}
+
+    unique_worker_ids = ds.map(_get_worker_id, num_gpus=1).unique("worker_id")
+
+    assert len(unique_worker_ids) == total_blocks
+
+
 def test_concurrency(shutdown_only):
     ray.init(num_cpus=6)
     ds = ray.data.range(10, override_num_blocks=10)
@@ -324,6 +343,15 @@ def test_add_column(ray_start_regular_shared):
         ds = ray.data.range(5).add_column("id", 0)
 
 
+@pytest.mark.parametrize("names", (["foo", "bar"], {"spam": "foo", "ham": "bar"}))
+def test_rename_columns(ray_start_regular_shared, names):
+    ds = ray.data.from_items([{"spam": 0, "ham": 0}])
+
+    renamed_ds = ds.rename_columns(names)
+
+    assert renamed_ds.schema().names == ["foo", "bar"]
+
+
 def test_drop_columns(ray_start_regular_shared, tmp_path):
     df = pd.DataFrame({"col1": [1, 2, 3], "col2": [2, 3, 4], "col3": [3, 4, 5]})
     ds1 = ray.data.from_pandas(df)
@@ -351,7 +379,7 @@ def test_select_columns(ray_start_regular_shared):
     ds2 = ds1.map_batches(lambda pa: pa, batch_size=1, batch_format="pyarrow")
 
     for each_ds in [ds1, ds2]:
-        assert each_ds.select_columns(cols=[]).take(1) == [{}]
+        assert each_ds.select_columns(cols=[]).take(1) == []
         assert each_ds.select_columns(cols=["col1", "col2", "col3"]).take(1) == [
             {"col1": 1, "col2": 2, "col3": 3}
         ]
@@ -362,14 +390,20 @@ def test_select_columns(ray_start_regular_shared):
             {"col1": 1, "col2": 2}
         ]
         # Test selecting columns with duplicates
-        assert each_ds.select_columns(cols=["col1", "col2", "col2"]).schema().names == [
-            "col1",
-            "col2",
-            "col2",
-        ]
+        with pytest.raises(ValueError, match="expected unique column names"):
+            each_ds.select_columns(cols=["col1", "col2", "col2"]).schema()
         # Test selecting a column that is not in the dataset schema
         with pytest.raises((UserCodeException, KeyError)):
             each_ds.select_columns(cols=["col1", "col2", "dummy_col"]).materialize()
+
+
+@pytest.mark.parametrize("cols", [None, 1, [1]])
+def test_select_columns_validation(ray_start_regular_shared, cols):
+    df = pd.DataFrame({"col1": [1, 2, 3], "col2": [2, 3, 4], "col3": [3, 4, 5]})
+    ds1 = ray.data.from_pandas(df)
+
+    with pytest.raises(ValueError):
+        ds1.select_columns(cols=cols)
 
 
 def test_map_batches_basic(ray_start_regular_shared, tmp_path, restore_data_context):

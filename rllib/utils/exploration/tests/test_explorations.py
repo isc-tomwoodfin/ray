@@ -18,9 +18,6 @@ def do_test_explorations(config, dummy_obs, prev_a=None, expected_mean_action=No
     for exploration in [None, "Random"]:
         local_config = config.copy()
         if exploration == "Random":
-            if local_config.enable_rl_module_and_learner:
-                # TODO(Artur): Support Random exploration with RL Modules.
-                continue
             local_config.env_runners(exploration_config={"type": "Random"})
         print("exploration={}".format(exploration or "default"))
 
@@ -78,6 +75,10 @@ class TestExplorations(unittest.TestCase):
     def test_impala(self):
         config = (
             impala.IMPALAConfig()
+            .api_stack(
+                enable_rl_module_and_learner=False,
+                enable_env_runner_and_connector_v2=False,
+            )
             .environment("CartPole-v1")
             .env_runners(num_env_runners=0)
             .resources(num_gpus=0)
@@ -90,7 +91,13 @@ class TestExplorations(unittest.TestCase):
 
     def test_ppo_discr(self):
         config = (
-            ppo.PPOConfig().environment("CartPole-v1").env_runners(num_env_runners=0)
+            ppo.PPOConfig()
+            .api_stack(
+                enable_env_runner_and_connector_v2=False,
+                enable_rl_module_and_learner=False,
+            )
+            .environment("CartPole-v1")
+            .env_runners(num_env_runners=0)
         )
         do_test_explorations(
             config,
@@ -100,7 +107,13 @@ class TestExplorations(unittest.TestCase):
 
     def test_ppo_cont(self):
         config = (
-            ppo.PPOConfig().environment("Pendulum-v1").env_runners(num_env_runners=0)
+            ppo.PPOConfig()
+            .api_stack(
+                enable_env_runner_and_connector_v2=False,
+                enable_rl_module_and_learner=False,
+            )
+            .environment("Pendulum-v1")
+            .env_runners(num_env_runners=0)
         )
         do_test_explorations(
             config,
